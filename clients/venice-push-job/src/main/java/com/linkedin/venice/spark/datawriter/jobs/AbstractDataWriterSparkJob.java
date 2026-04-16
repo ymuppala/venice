@@ -20,6 +20,7 @@ import static com.linkedin.venice.spark.SparkConstants.MESSAGE_TYPE_COLUMN_NAME;
 import static com.linkedin.venice.spark.SparkConstants.OFFSET;
 import static com.linkedin.venice.spark.SparkConstants.OFFSET_COLUMN_NAME;
 import static com.linkedin.venice.spark.SparkConstants.PARTITION_COLUMN_NAME;
+import static com.linkedin.venice.spark.SparkConstants.PARTITION_RECORD_COUNT_SCHEMA;
 import static com.linkedin.venice.spark.SparkConstants.RAW_PUBSUB_INPUT_TABLE_SCHEMA;
 import static com.linkedin.venice.spark.SparkConstants.REPLICATION_METADATA_PAYLOAD;
 import static com.linkedin.venice.spark.SparkConstants.RMD_COLUMN_NAME;
@@ -113,9 +114,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -844,7 +847,7 @@ public abstract class AbstractDataWriterSparkJob extends DataWriterComputeJob {
     validateRmdSchema(pushJobSetting);
 
     ExpressionEncoder<Row> rowEncoder = RowEncoder.apply(DEFAULT_SCHEMA);
-    ExpressionEncoder<Row> rowEncoderWithPartition = RowEncoder.apply(DEFAULT_SCHEMA_WITH_PARTITION);
+    ExpressionEncoder<Row> partitionRecordCountEncoder = RowEncoder.apply(PARTITION_RECORD_COUNT_SCHEMA);
     int numOutputPartitions = pushJobSetting.partitionCount;
 
     Properties jobProps = new Properties();
@@ -913,11 +916,19 @@ public abstract class AbstractDataWriterSparkJob extends DataWriterComputeJob {
         } finally {
           kafkaWriteMetrics.timeNs.add(System.nanoTime() - startNs);
         }
-      }, rowEncoderWithPartition);
+      }, partitionRecordCountEncoder);
 
-      // For VPJ, we don't care about the output from the DAG. ".count()" is an action that will trigger execution of
-      // the DAG to completion and will not copy all the rows to the driver to be more memory efficient.
-      dataFrame.count();
+      // collect() returns one (partitionId, recordCount) row per Spark partition. This is safe
+      // because the data volume is bounded by numPartitions (e.g., 10K partitions = ~160KB).
+      List<Row> partitionCountRows = dataFrame.collectAsList();
+      Map<Integer, Long> perPartitionRecordCounts = new HashMap<>(partitionCountRows.size());
+      for (Row row: partitionCountRows) {
+        int partitionId = row.getInt(0);
+        long recordCount = row.getLong(1);
+        perPartitionRecordCounts.merge(partitionId, recordCount, Long::sum);
+      }
+      taskTracker.setPerPartitionRecordCounts(perPartitionRecordCounts);
+      LOGGER.info("Collected per-partition record counts for {} partitions", perPartitionRecordCounts.size());
     } finally {
       // No matter what, always log the final accumulator values
       logAccumulatorValues();

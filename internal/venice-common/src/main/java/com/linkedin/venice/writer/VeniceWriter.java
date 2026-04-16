@@ -1445,6 +1445,51 @@ public class VeniceWriter<K, V, U> extends AbstractVeniceWriter<K, V, U> {
     endAllSegments(true);
   }
 
+  /**
+   * Broadcast End-of-Push control messages with per-partition record counts embedded as PubSub headers.
+   * Each partition's EOP message carries a {@link PubSubMessageHeaders#VENICE_PARTITION_RECORD_COUNT_HEADER}
+   * header containing the 8-byte big-endian encoded record count for that partition.
+   * Partitions not present in the map receive a standard EOP without the header.
+   *
+   * @param debugInfo arbitrary key/value pairs of information propagated alongside the control message.
+   * @param partitionRecordCounts map of partition ID to record count, or null to skip embedding counts.
+   */
+  public void broadcastEndOfPush(Map<String, String> debugInfo, Map<Integer, Long> partitionRecordCounts) {
+    if (partitionRecordCounts == null || partitionRecordCounts.isEmpty()) {
+      broadcastEndOfPush(debugInfo);
+      return;
+    }
+    ControlMessage controlMessage = getEmptyControlMessage(ControlMessageType.END_OF_PUSH);
+    controlMessage.debugInfo = getDebugInfo(debugInfo);
+    for (int partition = 0; partition < numberOfPartitions; partition++) {
+      Long recordCount = partitionRecordCounts.get(partition);
+      PubSubMessageHeaders headers;
+      if (recordCount != null) {
+        headers = new PubSubMessageHeaders();
+        byte[] countBytes = ByteBuffer.allocate(Long.BYTES).putLong(recordCount).array();
+        headers.add(PubSubMessageHeaders.VENICE_PARTITION_RECORD_COUNT_HEADER, countBytes);
+      } else {
+        headers = EmptyPubSubMessageHeaders.SINGLETON;
+      }
+      // sendMessage acquires partitionLocks[partition] internally
+      sendMessage(
+          this::getControlMessageKey,
+          MessageType.CONTROL_MESSAGE,
+          controlMessage,
+          false, // EOP is never end-of-segment
+          partition,
+          null,
+          true,
+          DEFAULT_LEADER_METADATA_WRAPPER,
+          VENICE_DEFAULT_LOGICAL_TS,
+          headers);
+    }
+    logger.info(
+        "Successfully broadcast END_OF_PUSH Control Message with per-partition record counts for topic: {}",
+        topicName);
+    endAllSegments(true);
+  }
+
   public void broadcastTopicSwitch(
       @Nonnull List<CharSequence> sourceKafkaCluster,
       @Nonnull String sourceTopicName,
