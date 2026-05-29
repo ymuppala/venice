@@ -816,6 +816,14 @@ public class DispatchingAvroGenericStoreClient<K, V> extends InternalAvroStoreCl
     // position. duplicate() shares the underlying bytes but gives us our own position/limit/mark.
     ByteBuffer view = rawValue.duplicate();
     int schemaId = view.getInt();
+    // Fail fast if the parsed schemaId is clearly not a real Venice writer schema id — i.e., the rawValue bytes do
+    // not match the expected [4-byte BE schemaId][compressed Avro] wire format. Doing this before decompression
+    // gives a clear "wire format" error instead of an opaque downstream "schema not found" / "Avro decode" failure.
+    if (!metadata.isKnownValueSchemaId(schemaId)) {
+      throw new VeniceClientException(
+          "Writer schema id parsed from rawValue (" + schemaId + ") is not in the known value schema set for store: "
+              + getStoreName() + " — rawValue may not match the expected wire format");
+    }
     CompressionStrategy strategy = metadata.getCompressionStrategy(version);
     VeniceCompressor compressor = metadata.getCompressor(strategy, version);
     ByteBuffer decompressed;

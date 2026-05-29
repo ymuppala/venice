@@ -69,6 +69,19 @@ public interface StoreMetadata extends SchemaReader {
     return CompressionStrategy.NO_OP;
   }
 
+  /**
+   * Returns {@code true} if {@code valueSchemaId} is in the set of value schema ids this metadata instance has
+   * observed for the store. Used by the external-storage seam to fail fast when a parsed writer-schema-id prefix
+   * is clearly not a real Venice schema id — typically because the {@code rawValue} bytes do not match the
+   * expected {@code [4-byte BE schemaId][compressed Avro]} wire format.
+   *
+   * <p>The default returns {@code true} so lightweight test fakes do not need to track per-store schema state; the
+   * canonical {@link AbstractStoreMetadata}-derived implementation overrides with a real registry lookup.
+   */
+  default boolean isKnownValueSchemaId(int valueSchemaId) {
+    return true;
+  }
+
   int getBatchGetLimit();
 
   void start();

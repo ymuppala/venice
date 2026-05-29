@@ -823,6 +823,11 @@ public class RequestBasedMetadata extends AbstractStoreMetadata {
   }
 
   @Override
+  public boolean isKnownValueSchemaId(int valueSchemaId) {
+    return schemas.get().getValueSchema(valueSchemaId) != null;
+  }
+
+  @Override
   public int getValueSchemaId(Schema schema) {
     SchemaEntry schemaEntry = new SchemaEntry(INVALID_VALUE_SCHEMA_ID, schema);
     return schemas.get().getSchemaID(schemaEntry);

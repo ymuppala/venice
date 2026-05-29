@@ -702,6 +702,32 @@ public class DispatchingAvroGenericStoreClientTest {
     }
   }
 
+  @Test(timeOut = TEST_TIMEOUT)
+  public void testDecompressAndDeserializeThrowsOnUnknownSchemaIdInPrefix() throws Exception {
+    try {
+      setUpClient();
+      // Well-formed buffer (4-byte prefix + body) but the prefix value is a schema id the metadata has never seen.
+      // The seam should fail fast on the schema-id check before attempting decompression or deserialization.
+      ByteBuffer wire = ByteBuffer.allocate(Integer.BYTES + 8);
+      wire.putInt(99999);
+      wire.put(new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 });
+      wire.flip();
+      try {
+        dispatchingAvroGenericStoreClient.decompressAndDeserialize(wire, 1, "test_key");
+        fail("expected VeniceClientException for unknown schema id in prefix");
+      } catch (VeniceClientException expected) {
+        assertTrue(
+            expected.getMessage().contains("Writer schema id"),
+            "expected 'Writer schema id' in message, got: " + expected.getMessage());
+        assertTrue(
+            expected.getMessage().contains("wire format"),
+            "expected 'wire format' in message, got: " + expected.getMessage());
+      }
+    } finally {
+      tearDown();
+    }
+  }
+
   /**
    * Exercises the forwarder added to {@link com.linkedin.venice.fastclient.DelegatingAvroStoreClient}: the call goes
    * to the outermost wrapper (StatsAvroGenericStoreClient extends DelegatingAvroStoreClient) and must traverse the
