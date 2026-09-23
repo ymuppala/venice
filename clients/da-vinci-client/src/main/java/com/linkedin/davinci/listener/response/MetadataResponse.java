@@ -57,6 +57,10 @@ public class MetadataResponse {
     responseRecord.setBatchGetLimit(batchGetLimit);
   }
 
+  public void setMultiKeyLongTailRetryThresholdsInMs(String thresholds) {
+    responseRecord.setMultiKeyLongTailRetryThresholdsInMs(thresholds);
+  }
+
   public void setExternalStorageReadMode(int externalStorageReadMode) {
     responseRecord.setExternalStorageReadMode(externalStorageReadMode);
   }
